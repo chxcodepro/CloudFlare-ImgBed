@@ -1,8 +1,7 @@
 name: Upstream Sync
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
   issues: write
 
 on:
@@ -27,11 +26,21 @@ jobs:
     if: ${{ github.event.repository.fork }}
 
     steps:
+      - name: Check sync token
+        env:
+          SYNC_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          if [ -z "$SYNC_TOKEN" ]; then
+            echo "::error::Configure the SYNC_TOKEN repository secret with Contents and Workflows read/write permissions for this repository."
+            exit 1
+          fi
+
       - name: Checkout target repo
         uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check breaking update policy
         id: breaking_guard
@@ -50,7 +59,7 @@ jobs:
           upstream_sync_repo: MarSeventh/CloudFlare-ImgBed
           upstream_sync_branch: main
           target_sync_branch: main
-          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+          target_repo_token: ${{ secrets.SYNC_TOKEN }}
           test_mode: false
 
       - name: Complete breaking update notices
@@ -59,26 +68,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash .github/breaking-updates/scripts/breaking-update-guard.sh complete
 
-      - name: Trigger Worker deploy
-        if: steps.sync.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run deploy-worker.yml --repo "${{ github.repository }}" --ref main
-
       - name: Sync failure guidance
         if: failure() && steps.sync.outcome == 'failure'
         run: |
-          {
-            echo "## ⚠️ 上游同步未完成 / Upstream synchronization did not complete"
-            echo
-            echo "上游同步步骤未能完成。若上游近期修改了 workflow 文件，GitHub 可能会暂停包含 workflow 变更的自动同步；也可能是当前 Fork 的 Actions 权限或同步权限发生了变化。"
-            echo
-            echo "The upstream synchronization step could not be completed. If the upstream workflow files changed recently, GitHub may pause automatic synchronization that includes workflow changes. The issue may also be related to Actions or synchronization permissions in this fork."
-            echo
-            echo "建议先在 GitHub 页面手动执行一次 **Sync fork**，确认 Actions 具有读写权限后，再重新运行本工作流。"
-            echo
-            echo "Please manually use **Sync fork** on GitHub, confirm that Actions has read and write permissions, and then rerun this workflow."
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "[Error] 上游同步未能完成。若上游近期修改了 workflow 文件，请先在 GitHub 页面手动执行一次 Sync Fork，然后重新运行本工作流。"
-          echo "[Error] The upstream sync could not be completed. If the upstream workflow files changed recently, manually run Sync Fork on GitHub and then rerun this workflow."
-          exit 1
+          echo "Check that SYNC_TOKEN is valid, grants Contents and Workflows read/write access to this repository, and has not expired or been revoked." >> "$GITHUB_STEP_SUMMARY"
